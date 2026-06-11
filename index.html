@@ -1543,10 +1543,15 @@ function _buildContratoHTML(aid){
   </body></html>`;
 }
 
+function copiarVal(el){
+  const t=el.dataset.v||'';
+  navigator.clipboard.writeText(t).then(()=>toast('📋 Copiado','ok')).catch(()=>toast('No se pudo copiar','err'));
+}
+
 function genContrato(aid){
   const a=ga(aid),veh=a?gv(a.vehiculoId):null;
   if(!a||!veh){toast('Asignación no encontrada','err');return;}
-  // Mostrar elección de método de firma
+  const hasPl=(db.plantillas||[]).length>0;
   openModal(`Contrato — ${veh.matricula}`,`
     <div style="margin-bottom:16px;font-size:13px;color:#64748b">
       Cliente: <strong>${a.clienteNombre}</strong> · ${veh.marca} ${veh.modelo}
@@ -1565,8 +1570,115 @@ function genContrato(aid){
         <div style="margin-top:10px;font-size:10px;color:#94a3b8">El cliente firma<br>desde su móvil</div>
       </div>
     </div>
+    <div style="margin-top:12px;border:2px solid #e2e8f0;border-radius:12px;padding:14px 20px;cursor:pointer;transition:all .15s;display:flex;align-items:center;gap:14px" onclick="usarPlantillaConAsig('${aid}')" onmouseover="this.style.borderColor='#7c3aed'" onmouseout="this.style.borderColor='#e2e8f0'">
+      <div style="font-size:28px">📄</div>
+      <div style="flex:1">
+        <div style="font-size:14px;font-weight:700;color:#0f172a">Mis Plantillas${hasPl?'':' <span style="font-size:11px;color:#94a3b8;font-weight:400">(aún sin plantillas)</span>'}</div>
+        <div style="font-size:11px;color:#64748b">Usa tu contrato personalizado · datos autorrellenados</div>
+      </div>
+      <div style="font-size:18px;color:#94a3b8">›</div>
+    </div>
     ${a.metodoFirma?`<div style="margin-top:14px;padding:8px 12px;background:#f0fdf4;border-radius:8px;font-size:12px;color:#065f46">✓ Este contrato ya fue firmado por <strong>${a.metodoFirma==='fisica'?'método físico':'firma online'}</strong> el ${fd(a.fechaFirma||'')}</div>`:''}
   `,`<button class="btn btn-s" onclick="closeModal()">Cancelar</button>`);
+}
+
+function usarPlantillaConAsig(aid){
+  const a=ga(aid),veh=a?gv(a.vehiculoId):null;
+  if(!a||!veh)return;
+  const pl=db.plantillas||[];
+  const fd2=s=>s?new Date(s).toLocaleDateString('es-ES'):'—';
+
+  const filasDatos=[
+    ['NOMBRE',a.clienteNombre||''],
+    ['DNI',a.clienteDni||''],
+    ['TELEFONO',a.clienteTel||''],
+    ['EMAIL',a.clienteEmail||''],
+    ['MATRICULA',veh.matricula||''],
+    ['MARCA',veh.marca||''],
+    ['MODELO',veh.modelo||''],
+    ['AÑO',String(veh.año||'')],
+    ['FECHA_ENTREGA',fd2(a.fechaEntrega)],
+    ['FECHA_DEVOLUCION',fd2(a.fechaDevolucionPrevista)],
+    ['OR',a.orVinculada||''],
+    ['KM_SALIDA',String(a.kmSalida||0)],
+    ...(a.numSiniestro?[['NUM_SINIESTRO',a.numSiniestro],['ASEGURADORA',a.aseguradora||'']]:[]),
+  ];
+
+  const tablaHTML=filasDatos.map(([k,val])=>`
+    <tr>
+      <td style="padding:5px 10px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;white-space:nowrap;background:#f8fafc;border-bottom:1px solid #f1f5f9">{{${k}}}</td>
+      <td style="padding:5px 10px;font-size:13px;font-family:monospace;color:#0f172a;border-bottom:1px solid #f1f5f9">
+        <span style="cursor:pointer;user-select:none" data-v="${val.replace(/"/g,'&quot;')}" onclick="copiarVal(this)" title="Clic para copiar">${val||'<span style=color:#94a3b8>—</span>'} <span style="font-size:10px;color:#94a3b8">📋</span></span>
+      </td>
+    </tr>`).join('');
+
+  const listaPlantillas=pl.length===0
+    ?`<div style="padding:16px;text-align:center;color:#94a3b8;font-size:13px">Sin plantillas — ve a <strong>Ajustes → Plantillas</strong> para añadir la tuya</div>`
+    :pl.map(p=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid #e2e8f0;border-radius:8px;margin-bottom:6px;background:#f8fafc">
+      <div style="font-size:20px">${p.tipo==='pdf'?'📄':'🔗'}</div>
+      <div style="flex:1">
+        <div style="font-size:13px;font-weight:600;color:#0f172a">${p.nombre}</div>
+        <div style="font-size:11px;color:#94a3b8">${p.tipo==='link'?p.url:p.descripcion||'PDF'}</div>
+      </div>
+      ${p.tipo==='link'&&SHEETS_URL?`<button class="btn btn-p btn-sm" id="btn-rel-${p.id}" onclick="crearDocRellenado('${aid}','${p.id}',this)">✨ Crear rellenado</button>`:''}
+      <button class="btn-gh btn-sm" onclick="${p.tipo==='link'?`window.open('${p.url}','_blank')`:`descargarPlantillaPDF('${p.id}')`}">📂 Abrir</button>
+    </div>`).join('');
+
+  openModal(`📄 Mis Plantillas — ${veh.matricula}`,`
+    <div style="margin-bottom:14px">
+      <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:8px;letter-spacing:.06em">Datos del contrato <span style="font-weight:400;text-transform:none">(clic en cada valor para copiarlo)</span></div>
+      <table style="width:100%;border-collapse:collapse;border:1px solid #e2e8f0;border-radius:8px;overflow:hidden">${tablaHTML}</table>
+    </div>
+    <div style="font-size:11px;font-weight:700;text-transform:uppercase;color:#64748b;margin-bottom:8px;letter-spacing:.06em">Selecciona plantilla</div>
+    ${listaPlantillas}
+    ${SHEETS_URL&&pl.some(p=>p.tipo==='link')?`<div style="margin-top:10px;padding:8px 12px;background:#faf5ff;border:1px solid #e9d5ff;border-radius:8px;font-size:11px;color:#6b21a8">
+      💡 <strong>✨ Crear rellenado</strong> crea una copia de tu Google Doc con los {{campos}} ya sustituidos. Tu plantilla debe usar <code style="background:#f3e8ff;padding:1px 4px;border-radius:3px">{{NOMBRE}}</code>, <code style="background:#f3e8ff;padding:1px 4px;border-radius:3px">{{DNI}}</code>, etc.
+    </div>`:''}
+  `,`<button class="btn btn-s" onclick="closeModal()">Cerrar</button>`);
+}
+
+function descargarPlantillaPDF(plId){
+  const p=(db.plantillas||[]).find(x=>x.id===plId);
+  if(!p||!p.pdfData)return;
+  const a=document.createElement('a');a.href=p.pdfData;a.download=p.descripcion||'plantilla.pdf';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);toast('📄 PDF descargado');
+}
+
+async function crearDocRellenado(aid,plId,btn){
+  const a=ga(aid),veh=a?gv(a.vehiculoId):null;
+  const p=(db.plantillas||[]).find(x=>x.id===plId);
+  if(!a||!veh||!p){toast('Datos no encontrados','err');return;}
+  const orig=btn.textContent;
+  btn.disabled=true;btn.textContent='⏳ Creando...';
+  const fd2=s=>s?new Date(s).toLocaleDateString('es-ES'):'';
+  try{
+    const res=await fetch(SHEETS_URL,{method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action:'crearDocumento',templateUrl:p.url,
+        datos:{
+          NOMBRE:a.clienteNombre||'',DNI:a.clienteDni||'',TELEFONO:a.clienteTel||'',EMAIL:a.clienteEmail||'',
+          MATRICULA:veh.matricula||'',MARCA:veh.marca||'',MODELO:veh.modelo||'',AÑO:String(veh.año||''),
+          FECHA_ENTREGA:fd2(a.fechaEntrega),FECHA_DEVOLUCION:fd2(a.fechaDevolucionPrevista),
+          OR:a.orVinculada||'',KM_SALIDA:String(a.kmSalida||0),
+          NUM_SINIESTRO:a.numSiniestro||'',ASEGURADORA:a.aseguradora||'',
+        }
+      })
+    });
+    const d=await res.json();
+    if(d.ok&&d.url){
+      btn.textContent='✅ Abrir doc';btn.disabled=false;
+      btn.style.background='#059669';btn.style.color='#fff';
+      btn.onclick=()=>window.open(d.url,'_blank');
+      toast('✅ Documento creado y rellenado','ok');
+    }else{
+      btn.textContent=orig;btn.disabled=false;
+      toast(d.error||'Error al crear documento','err');
+    }
+  }catch(e){
+    btn.textContent=orig;btn.disabled=false;
+    toast('Error de conexión con Apps Script','err');
+  }
 }
 
 function firmaFisica(aid){
